@@ -5,7 +5,7 @@ const {
 } = require('@whiskeysockets/baileys');
 
 const axios = require('axios');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 const express = require('express');
 require('dotenv').config();
 
@@ -18,7 +18,6 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth');
   const sock = makeWASocket({ auth: state });
 
-  // Guardar referencia global del socket
   sockGlobal = sock;
 
   // Manejar conexión
@@ -26,8 +25,14 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('📲 Escanea este código QR con WhatsApp:');
-      qrcode.generate(qr, { small: true });
+      console.log('📲 Escanea este código QR en tu navegador:\n');
+      qrcode.toDataURL(qr, (err, url) => {
+        if (err) {
+          console.error('❌ Error generando QR:', err.message);
+        } else {
+          console.log(url); // puedes copiar y abrir esta URL en un navegador para ver el QR
+        }
+      });
     }
 
     if (connection === 'close') {
@@ -67,35 +72,27 @@ async function startBot() {
       });
 
       const textoRespuesta = respuesta.data.respuesta || '✅ Recibido, gracias.';
-
       await sock.sendMessage(from, { text: textoRespuesta });
 
-      // Si hay archivo en la respuesta del webhook
+      // Enviar archivo si viene desde Make
       if (respuesta.data.archivo) {
         const { url, tipo, nombre } = respuesta.data.archivo;
         const archivo = await axios.get(url, { responseType: 'arraybuffer' });
 
+        const opciones = {
+          caption: nombre || '',
+          fileName: nombre || 'archivo',
+          mimetype: archivo.headers['content-type']
+        };
+
         if (tipo === 'image') {
-          await sock.sendMessage(from, {
-            image: archivo.data,
-            caption: nombre || '',
-          });
+          await sock.sendMessage(from, { image: archivo.data, ...opciones });
         } else if (tipo === 'document') {
-          await sock.sendMessage(from, {
-            document: archivo.data,
-            fileName: nombre || 'archivo.pdf',
-            mimetype: 'application/pdf',
-          });
+          await sock.sendMessage(from, { document: archivo.data, ...opciones });
         } else if (tipo === 'audio') {
-          await sock.sendMessage(from, {
-            audio: archivo.data,
-            mimetype: 'audio/mpeg',
-          });
+          await sock.sendMessage(from, { audio: archivo.data, ...opciones });
         } else if (tipo === 'video') {
-          await sock.sendMessage(from, {
-            video: archivo.data,
-            caption: nombre || '',
-          });
+          await sock.sendMessage(from, { video: archivo.data, ...opciones });
         }
       }
 
@@ -133,8 +130,8 @@ app.post('/enviar', async (req, res) => {
   }
 });
 
-// 🚀 Escuchar en puerto 3000
-app.listen(3000, () => {
-  console.log('🚀 API escuchando en http://localhost:3000/enviar');
+// 🚀 Escuchar en puerto 3000 (o el que Render defina)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 API escuchando en http://localhost:${PORT}/enviar`);
 });
- 
