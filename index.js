@@ -130,8 +130,8 @@ app.post('/enviar', async (req, res) => {
   }
 });
 
-// 🚀 Escuchar en puerto 3000 (o el que Render defina)
-const PORT = process.env.PORT || 3000;
+// 🚀 Escuchar en puerto 10000 (o el que Render defina)
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 API escuchando en http://localhost:${PORT}/enviar`);
 });
