@@ -4,18 +4,15 @@ import {
   DisconnectReason
 } from '@whiskeysockets/baileys';
 
-import express from 'express';
 import axios from 'axios';
 import qrcode from 'qrcode';
+import express from 'express';
+import dotenv from 'dotenv';
 import open from 'open';
 import fs from 'fs';
 import path from 'path';
-import dotenv from 'dotenv';
 
 dotenv.config();
-
-// ✅ Agrega esta línea justo aquí:
-console.log('📌 Webhook Make configurado en:', process.env.WEBHOOK_WHATSAPP_MAKE_URL);
 
 const app = express();
 app.use(express.json());
@@ -28,31 +25,25 @@ async function startBot() {
 
   sockGlobal = sock;
 
-  sock.ev.on('connection.update', (update) => {
+  // Eventos de conexión
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (connection === 'open') {
-      const numero = sock.user.id.split(':')[0];
-      console.log(`✅ ¡Conectado a WhatsApp con el número: ${numero}`);
-    }
-
-    // Solo mostrar QR si no hay conexión y no estamos en producción
-    if (qr && connection !== 'open' && process.env.NODE_ENV !== 'production') {
+    if (qr) {
+      console.log('📲 Escanea este código QR en tu navegador:\n');
       qrcode.toDataURL(qr, async (err, url) => {
-        if (err) {
-          console.error('❌ Error generando QR:', err.message);
-        } else {
+        if (!err) {
           const htmlQR = `
             <html>
-              <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-                <h2>Escanea este código QR con WhatsApp</h2>
-                <img src="${url}" style="width:300px;height:300px;" />
+              <body>
+                <h2>Escanea este código QR:</h2>
+                <img src="${url}" />
               </body>
             </html>
           `;
-          const filePath = path.join(path.resolve(), 'qr.html');
+          const filePath = path.join(process.cwd(), 'qr.html');
           fs.writeFileSync(filePath, htmlQR);
-          await open(filePath);
+          await open(`file://${filePath}`);
         }
       });
     }
@@ -63,10 +54,16 @@ async function startBot() {
       console.log('📴 Conexión cerrada. Reintentando:', shouldReconnect);
       if (shouldReconnect) startBot();
     }
+
+    if (connection === 'open') {
+      const numero = sock.user.id.split(':')[0];
+      console.log(`✅ ¡Conectado a WhatsApp con el número: ${numero}`);
+    }
   });
 
   sock.ev.on('creds.update', saveCreds);
 
+  // Escuchar mensajes entrantes
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
@@ -90,6 +87,7 @@ async function startBot() {
       const textoRespuesta = respuesta.data.respuesta || '✅ Recibido, gracias.';
       await sock.sendMessage(from, { text: textoRespuesta });
 
+      // Enviar archivo si viene desde Make
       if (respuesta.data.archivo) {
         const { url, tipo, nombre } = respuesta.data.archivo;
         const archivo = await axios.get(url, { responseType: 'arraybuffer' });
@@ -120,8 +118,10 @@ async function startBot() {
   });
 }
 
+// ▶️ Iniciar bot
 startBot();
 
+// 🔹 Endpoint para enviar mensaje
 app.post('/enviar', async (req, res) => {
   const { numero, mensaje } = req.body;
 
@@ -130,20 +130,42 @@ app.post('/enviar', async (req, res) => {
   }
 
   try {
-    const jid = numero.includes('@s.whatsapp.net')
+    const jid = numero.includes('@g.us') || numero.includes('@s.whatsapp.net')
       ? numero
-      : `${numero}@s.whatsapp.net`;
+      : numero.includes('-') // detectar si es grupo por formato
+        ? `${numero}@g.us`
+        : `${numero}@s.whatsapp.net`;
 
     await sockGlobal.sendMessage(jid, { text: mensaje });
+    res.json({ status: 'Mensaje enviado', para: jid });
 
-    res.json({ status: 'Mensaje enviado', para: numero });
   } catch (err) {
     console.error('❌ Error al enviar mensaje:', err.message);
     res.status(500).json({ error: 'Error al enviar mensaje' });
   }
 });
 
+// 🔎 Endpoint para consultar metadata del grupo
+app.post('/grupo', async (req, res) => {
+  const { idGrupo } = req.body;
+
+  if (!idGrupo) {
+    return res.status(400).json({ error: 'Falta idGrupo' });
+  }
+
+  const jid = idGrupo.includes('@g.us') ? idGrupo : `${idGrupo}@g.us`;
+
+  try {
+    const metadata = await sockGlobal.groupMetadata(jid);
+    res.json({ ok: true, nombre: metadata.subject, participantes: metadata.participants.length });
+  } catch (err) {
+    console.error('❌ Error obteniendo metadata del grupo:', err.message);
+    res.status(500).json({ error: 'No se pudo obtener información del grupo' });
+  }
+});
+
+// 🚀 Puerto
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 API escuchando en http://localhost:${PORT}/enviar`);
+  console.log(`🚀 API escuchando en http://localhost:${PORT}`);
 });
