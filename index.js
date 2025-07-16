@@ -1,13 +1,21 @@
-const {
+import {
   makeWASocket,
   useMultiFileAuthState,
   DisconnectReason
-} = require('@whiskeysockets/baileys');
+} from '@whiskeysockets/baileys';
 
-const axios = require('axios');
-const qrcode = require('qrcode');
-const express = require('express');
-require('dotenv').config();
+import express from 'express';
+import axios from 'axios';
+import qrcode from 'qrcode';
+import open from 'open';
+import fs from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// ✅ Agrega esta línea justo aquí:
+console.log('📌 Webhook Make configurado en:', process.env.WEBHOOK_WHATSAPP_MAKE_URL);
 
 const app = express();
 app.use(express.json());
@@ -20,17 +28,31 @@ async function startBot() {
 
   sockGlobal = sock;
 
-  // Manejar conexión
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
-      console.log('📲 Escanea este código QR en tu navegador:\n');
-      qrcode.toDataURL(qr, (err, url) => {
+    if (connection === 'open') {
+      const numero = sock.user.id.split(':')[0];
+      console.log(`✅ ¡Conectado a WhatsApp con el número: ${numero}`);
+    }
+
+    // Solo mostrar QR si no hay conexión y no estamos en producción
+    if (qr && connection !== 'open' && process.env.NODE_ENV !== 'production') {
+      qrcode.toDataURL(qr, async (err, url) => {
         if (err) {
           console.error('❌ Error generando QR:', err.message);
         } else {
-          console.log(url); // puedes copiar y abrir esta URL en un navegador para ver el QR
+          const htmlQR = `
+            <html>
+              <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+                <h2>Escanea este código QR con WhatsApp</h2>
+                <img src="${url}" style="width:300px;height:300px;" />
+              </body>
+            </html>
+          `;
+          const filePath = path.join(path.resolve(), 'qr.html');
+          fs.writeFileSync(filePath, htmlQR);
+          await open(filePath);
         }
       });
     }
@@ -41,16 +63,10 @@ async function startBot() {
       console.log('📴 Conexión cerrada. Reintentando:', shouldReconnect);
       if (shouldReconnect) startBot();
     }
-
-    if (connection === 'open') {
-      const numero = sock.user.id.split(':')[0];
-      console.log(`✅ ¡Conectado a WhatsApp con el número: ${numero}`);
-    }
   });
 
   sock.ev.on('creds.update', saveCreds);
 
-  // Escuchar mensajes entrantes
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
@@ -66,7 +82,7 @@ async function startBot() {
     console.log(`📩 Mensaje recibido de ${from}: ${text}`);
 
     try {
-      const respuesta = await axios.post(process.env.WEBHOOK_URL, {
+      const respuesta = await axios.post(process.env.WEBHOOK_WHATSAPP_MAKE_URL, {
         mensaje: text,
         de: from,
       });
@@ -74,7 +90,6 @@ async function startBot() {
       const textoRespuesta = respuesta.data.respuesta || '✅ Recibido, gracias.';
       await sock.sendMessage(from, { text: textoRespuesta });
 
-      // Enviar archivo si viene desde Make
       if (respuesta.data.archivo) {
         const { url, tipo, nombre } = respuesta.data.archivo;
         const archivo = await axios.get(url, { responseType: 'arraybuffer' });
@@ -105,10 +120,8 @@ async function startBot() {
   });
 }
 
-// ▶️ Iniciar bot
 startBot();
 
-// 🟢 API para enviar mensajes desde Make.com
 app.post('/enviar', async (req, res) => {
   const { numero, mensaje } = req.body;
 
@@ -130,7 +143,6 @@ app.post('/enviar', async (req, res) => {
   }
 });
 
-// 🚀 Escuchar en puerto 3000 (o el que Render defina)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 API escuchando en http://localhost:${PORT}/enviar`);

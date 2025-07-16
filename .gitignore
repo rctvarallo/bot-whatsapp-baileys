@@ -1,3 +1,5 @@
 auth/
 .env
 node_modules/
+qr.html
+*.log
