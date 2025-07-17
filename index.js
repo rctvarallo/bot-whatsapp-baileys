@@ -4,15 +4,15 @@ import {
   DisconnectReason
 } from '@whiskeysockets/baileys';
 
-import axios from 'axios';
+// import axios from 'axios'; // Make
 import qrcode from 'qrcode';
 import express from 'express';
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv'; // Make
 import open from 'open';
 import fs from 'fs';
 import path from 'path';
 
-dotenv.config();
+// dotenv.config(); // Make
 
 const app = express();
 app.use(express.json());
@@ -78,6 +78,8 @@ async function startBot() {
 
     console.log(`📩 Mensaje recibido de ${from}: ${text}`);
 
+    // Comentado: integración con Make
+    /*
     try {
       const respuesta = await axios.post(process.env.WEBHOOK_WHATSAPP_MAKE_URL, {
         mensaje: text,
@@ -115,6 +117,7 @@ async function startBot() {
         text: 'Lo siento 😓 Hubo un error al procesar tu mensaje.',
       });
     }
+    */
   });
 }
 
